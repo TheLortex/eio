@@ -1225,7 +1225,7 @@ let no_fallback (`Msg msg) = failwith msg
 
 (* Don't use [Fun.protect] - it throws away the original exception! *)
 let with_uring ~queue_depth ?polling_timeout ?(fallback=no_fallback) fn =
-  match Uring.create ~queue_depth ?polling_timeout () with
+  match Uring.create ~queue_depth ~max_unbounded_workers:2 ?polling_timeout () with
   | exception Unix.Unix_error(Unix.ENOSYS, _, _) -> fallback (`Msg "io_uring is not available on this system")
   | uring ->
     match fn uring with
