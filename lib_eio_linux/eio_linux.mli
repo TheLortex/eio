@@ -25,7 +25,8 @@ open Eio.Std
 
 (** Wrap [Unix.file_descr] to track whether it has been closed. *)
 module FD : sig
-  type t
+
+  type t 
   (** Either a [Unix.file_descr] or nothing (if closed) .*)
 
   val is_open : t -> bool
@@ -50,6 +51,16 @@ module FD : sig
       This allows unsafe access to the FD.
       If [op] is [`Take] then [t] is marked as closed (but the underlying FD is not actually closed).
       @raise Invalid_arg if [t] is closed. *)
+
+
+  (* Fixed files *)
+  
+  type fixed
+
+  val register : t -> fixed
+  
+  val unregister : fixed -> unit
+
 end
 
 (** {1 Eio API} *)
@@ -160,6 +171,8 @@ module Low_level : sig
       @param file_offset Read from the given position in [fd] (default: 0).
       @raise End_of_file Raised if all data has already been read. *)
 
+  val read_upto_fixed : ?file_offset:Optint.Int63.t -> FD.fixed -> Uring.Region.chunk -> int -> int
+
   val read_exactly : ?file_offset:Optint.Int63.t -> FD.t -> Uring.Region.chunk -> int -> unit
   (** [read_exactly fd chunk len] reads exactly [len] bytes from [fd],
       performing multiple read operations if necessary.
@@ -185,6 +198,8 @@ module Low_level : sig
 
       If multiple buffers are given, they are sent in order.
       It will make multiple OS calls if the OS doesn't write all of it at once. *)
+
+  val writev_fixed : ?file_offset:Optint.Int63.t -> FD.fixed -> Cstruct.t list -> unit
 
   val splice : FD.t -> dst:FD.t -> len:int -> int
   (** [splice src ~dst ~len] attempts to copy up to [len] bytes of data from [src] to [dst].

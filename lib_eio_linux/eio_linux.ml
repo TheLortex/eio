@@ -41,9 +41,62 @@ let wrap_errors path fn =
   | Unix.Unix_error(Unix.EXDEV, _, _)  as ex -> raise @@ Eio.Dir.Permission_denied (path, ex)
   | Eio.Dir.Permission_denied _        as ex -> raise @@ Eio.Dir.Permission_denied (path, ex)
 
-type _ Effect.t += Close : Unix.file_descr -> int Effect.t
+module Fixed_file = struct
+  type t = {
+    mutable index: int 
+  }
+
+  type 'a state = {
+    mutable values: (Unix.file_descr * t) list;
+    mutable registered: bool;
+    uring: 'a Uring.t;
+  }
+
+  let init uring = { 
+    values = [];
+    registered = false;
+    uring
+  }
+
+  let uring_update t = 
+    Printf.printf "File descriptors:\n";
+    List.iter (fun (fd, i) -> Printf.printf "%d> %d\n%!" i.index (Obj.magic fd)) t.values;
+    let n = List.length t.values in
+    if t.registered && n > 0 then
+      begin
+        Uring.unregister_files t.uring;
+        t.registered <- false;
+      end;
+    if not t.registered && n > 0 then
+      begin
+        Uring.register_files t.uring (List.map fst t.values |> Array.of_list);
+        t.registered <- true
+      end
+
+  let register t fd =
+    let entry = {index = List.length t.values} in
+    let new_values = 
+      List.rev ((fd, entry) :: List.rev t.values) 
+    in
+    t.values <- new_values;
+    uring_update t;
+    entry
+
+  let unregister t entry =
+    let new_values = List.filteri (fun i _  -> entry.index == i) t.values in
+    List.iteri (fun i (_, entry) -> entry.index <- i) t.values;
+    t.values <- new_values;
+    uring_update t
+
+end
+
+type _ Effect.t += 
+  | Close : Unix.file_descr -> int Effect.t
+  | Register_fixed : Unix.file_descr -> Fixed_file.t Effect.t
+  | Unregister_fixed : Fixed_file.t -> unit Effect.t
 
 module FD = struct
+
   type t = {
     seekable : bool;
     close_unix : bool;                          (* Whether closing this also closes the underlying FD. *)
@@ -106,12 +159,20 @@ module FD = struct
     match t.fd with
     | `Open fd -> Fmt.pf f "%d" (Obj.magic fd : int)
     | `Closed -> Fmt.string f "(closed)"
+
+  type fixed = Fixed_file.t
+  
+  let register e = Effect.perform (Register_fixed (get "register" e))
+  
+  let unregister e = Effect.perform (Unregister_fixed e)
+
+  type any = Fixed of fixed | Unix of t
 end
 
 type rw_req = {
   op : [`R|`W];
   file_offset : Optint.Int63.t;
-  fd : FD.t;
+  fd : FD.any;
   len : amount;
   buf : Uring.Region.chunk;
   mutable cur_off : int;
@@ -248,15 +309,18 @@ let clear_cancel (action : _ Suspended.t) =
   ignore (Fiber_context.clear_cancel_fn action.fiber : bool)
 
 let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; action} as req) =
-  let fd = FD.get "submit_rw_req" fd in
+  let fd, fixed = match fd with
+    | Fixed fd -> Obj.magic fd.index, true
+    | Unix fd -> FD.get "submit_rw_req" fd, false
+  in
   let {uring;io_q;_} = st in
   let off = Uring.Region.to_offset buf + cur_off in
   let len = match len with Exactly l | Upto l -> l in
   let len = len - cur_off in
   let retry = with_cancel_hook ~action st (fun () ->
       match op with
-      |`R -> Uring.read_fixed uring ~file_offset fd ~off ~len (Read req)
-      |`W -> Uring.write_fixed uring ~file_offset fd ~off ~len (Write req)
+      |`R -> Uring.read_fixed uring ~file_offset fd ~off ~len ~fixed (Read req)
+      |`W -> Uring.write_fixed uring ~file_offset fd ~off ~len ~fixed (Write req)
     )
   in
   if retry then (
@@ -270,9 +334,10 @@ let errno_is_retry = function -62 | -11 | -4 -> true |_ -> false
 
 let enqueue_read st action (file_offset,fd,buf,len) =
   let file_offset =
-    match file_offset with
-    | Some x -> x
-    | None -> FD.uring_file_offset fd
+    match file_offset, fd with
+    | Some x, _ -> x
+    | None, (FD.Unix fd) -> FD.uring_file_offset fd
+    | _, _ -> Optint.Int63.zero (* TODO no*)
   in
   let req = { op=`R; file_offset; len; fd; cur_off = 0; buf; action } in
   Log.debug (fun l -> l "read: submitting call");
@@ -296,13 +361,18 @@ let rec enqueue_readv args st action =
 let rec enqueue_writev args st action =
   let (file_offset,fd,bufs) = args in
   let file_offset =
-    match file_offset with
-    | Some x -> x
-    | None -> FD.uring_file_offset fd
+    match file_offset, fd with
+    | Some x, _ -> x
+    | None, (FD.Unix fd) -> FD.uring_file_offset fd
+    | _, _ -> Optint.Int63.zero (* TODO no*)
+  in
+  let fd, fixed = match fd with
+    | Fixed fd -> Obj.magic fd.index, true
+    | Unix fd -> FD.get "writev" fd, false
   in
   Ctf.label "writev";
   let retry = with_cancel_hook ~action st (fun () ->
-      Uring.writev st.uring ~file_offset (FD.get "writev" fd) bufs (Job action)
+      Uring.writev st.uring ~file_offset ~fixed fd bufs (Job action)
     )
   in
   if retry then (* wait until an sqe is available *)
@@ -337,9 +407,10 @@ let rec enqueue_close st action fd =
 
 let enqueue_write st action (file_offset,fd,buf,len) =
   let file_offset =
-    match file_offset with
-    | Some x -> x
-    | None -> FD.uring_file_offset fd
+    match file_offset, fd with
+    | Some x, _ -> x
+    | None, (FD.Unix fd) -> FD.uring_file_offset fd
+    | _, _ -> Optint.Int63.zero (* TODO no*)
   in
   let req = { op=`W; file_offset; len; fd; cur_off = 0; buf; action } in
   Log.debug (fun l -> l "write: submitting call");
@@ -559,17 +630,17 @@ module Low_level = struct
   let sleep_until d =
     Effect.perform (Sleep_until d)
 
-  type _ Effect.t += ERead : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int Effect.t
+  type _ Effect.t += ERead : (Optint.Int63.t option * FD.any * Uring.Region.chunk * amount) -> int Effect.t
 
   let read_exactly ?file_offset fd buf len =
-    let res = Effect.perform (ERead (file_offset, fd, buf, Exactly len)) in
+    let res = Effect.perform (ERead (file_offset, Unix fd, buf, Exactly len)) in
     Log.debug (fun l -> l "read_exactly: woken up after read");
     if res < 0 then (
       raise (Unix.Unix_error (Uring.error_of_errno res, "read_exactly", ""))
     )
 
   let read_upto ?file_offset fd buf len =
-    let res = Effect.perform (ERead (file_offset, fd, buf, Upto len)) in
+    let res = Effect.perform (ERead (file_offset, Unix fd, buf, Upto len)) in
     Log.debug (fun l -> l "read_upto: woken up after read");
     if res < 0 then (
       let err = Uring.error_of_errno res in
@@ -579,6 +650,19 @@ module Low_level = struct
     ) else (
       res
     )
+
+  let read_upto_fixed ?file_offset fd buf len =
+    let res = Effect.perform (ERead (file_offset, Fixed fd, buf, Upto len)) in
+    Log.debug (fun l -> l "read_upto: woken up after read");
+    if res < 0 then (
+      let err = Uring.error_of_errno res in
+      let ex = Unix.Unix_error (err, "read_upto", "") in
+      if err = Unix.ECONNRESET then raise (Eio.Net.Connection_reset ex)
+      else raise ex
+    ) else (
+      res
+    )
+
 
   let readv ?file_offset fd bufs =
     let res = enter (enqueue_readv (file_offset, fd, bufs)) in
@@ -592,7 +676,7 @@ module Low_level = struct
     )
 
   let rec writev ?file_offset fd bufs =
-    let res = enter (enqueue_writev (file_offset, fd, bufs)) in
+    let res = enter (enqueue_writev (file_offset, Unix fd, bufs)) in
     Log.debug (fun l -> l "writev: woken up after write");
     if res < 0 then (
       raise (Unix.Unix_error (Uring.error_of_errno res, "writev", ""))
@@ -610,6 +694,25 @@ module Low_level = struct
         writev ?file_offset fd bufs
     )
 
+  let rec writev_fixed ?file_offset fd bufs =
+    let res = enter (enqueue_writev (file_offset, Fixed fd, bufs)) in
+    Log.debug (fun l -> l "writev: woken up after write");
+    if res < 0 then (
+      raise (Unix.Unix_error (Uring.error_of_errno res, "writev", ""))
+    ) else (
+      match Cstruct.shiftv bufs res with
+      | [] -> ()
+      | bufs ->
+        let file_offset =
+          let module I63 = Optint.Int63 in
+          match file_offset with
+          | None -> None
+          | Some ofs when ofs = I63.minus_one -> Some I63.minus_one
+          | Some ofs -> Some (I63.add ofs (I63.of_int res))
+        in
+        writev_fixed ?file_offset fd bufs
+    )
+
   let await_readable fd =
     let res = enter (enqueue_poll_add fd (Uring.Poll_mask.(pollin + pollerr))) in
     Log.debug (fun l -> l "await_readable: woken up");
@@ -624,10 +727,10 @@ module Low_level = struct
       raise (Unix.Unix_error (Uring.error_of_errno res, "await_writable", ""))
     )
 
-  type _ Effect.t += EWrite : (Optint.Int63.t option * FD.t * Uring.Region.chunk * amount) -> int Effect.t
+  type _ Effect.t += EWrite : (Optint.Int63.t option * FD.any * Uring.Region.chunk * amount) -> int Effect.t
 
   let write ?file_offset fd buf len =
-    let res = Effect.perform (EWrite (file_offset, fd, buf, Exactly len)) in
+    let res = Effect.perform (EWrite (file_offset, FD.Unix fd, buf, Exactly len)) in
     Log.debug (fun l -> l "write: woken up after write");
     if res < 0 then (
       raise (Unix.Unix_error (Uring.error_of_errno res, "write", ""))
@@ -1151,6 +1254,7 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fal
       Log.warn (fun f -> f "Failed to allocate %d byte fixed buffer" fixed_buf_len);
       None
   in
+  let fixed_file_state = Fixed_file.init uring in
   let run_q = Lf_queue.create () in
   let eventfd_mutex = Mutex.create () in
   let sleep_q = Zzz.create () in
@@ -1192,6 +1296,10 @@ let rec run ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fal
               enqueue_close st k fd;
               schedule st
             )
+          | Register_fixed fd ->
+              Some (fun k -> continue k (Fixed_file.register fixed_file_state fd))
+          | Unregister_fixed fd ->
+              Some (fun k -> continue k (Fixed_file.unregister fixed_file_state fd))
           | Low_level.EWrite args -> Some (fun k ->
               let k = { Suspended.k; fiber } in
               enqueue_write st k args;
