@@ -34,8 +34,8 @@ module Switch : sig
 
   (** {2 Switch creation} *)
 
-  val run : (t -> 'a) -> 'a
-  (** [run fn] runs [fn] with a fresh switch (initially on).
+  val run : ?label:string -> (t -> 'a) -> 'a
+  (** [run ~label fn] runs [fn] with a fresh switch (initially on).
 
       When [fn] finishes, [run] waits for all fibers registered with the switch to finish,
       and then releases all attached resources.
@@ -43,8 +43,8 @@ module Switch : sig
       If {!fail} is called, [run] will re-raise the exception (after everything is cleaned up).
       If [fn] raises an exception, it is passed to {!fail}. *)
 
-  val run_protected : (t -> 'a) -> 'a
-  (** [run_protected fn] is like [run] but ignores cancellation requests from the parent context. *)
+  val run_protected : ?label:string -> (t -> 'a) -> 'a
+  (** [run_protected ~label fn] is like [run] but ignores cancellation requests from the parent context. *)
 
   (** {2 Cancellation and failure} *)
 
@@ -177,10 +177,10 @@ module Fiber : sig
       A fiber runs until it performs an IO operation (directly or indirectly).
       At that point, it may be suspended and the next fiber on the run queue runs. *)
 
-  val both : (unit -> unit) -> (unit -> unit) -> unit
-  (** [both f g] runs [f ()] and [g ()] concurrently.
+  val both : ?label:string -> (unit -> unit) -> (unit -> unit) -> unit
+  (** [both ~label f g] runs [f ()] and [g ()] concurrently.
 
-      They run in a new cancellation sub-context, and
+      They run in a new cancellation sub-context labelled [label], and
       if either raises an exception, the other is cancelled.
       [both] waits for both functions to finish even if one raises
       (it will then re-raise the original exception).
@@ -192,14 +192,14 @@ module Fiber : sig
 
       If both fibers fail, {!Exn.combine} is used to combine the exceptions. *)
 
-  val pair : (unit -> 'a) -> (unit -> 'b) -> 'a * 'b
+  val pair : ?label:string -> (unit -> 'a) -> (unit -> 'b) -> 'a * 'b
   (** [pair f g] is like [both], but returns the two results. *)
 
-  val all : (unit -> unit) list -> unit
+  val all : ?label:string -> (unit -> unit) list -> unit
   (** [all fs] is like [both], but for any number of fibers.
       [all []] returns immediately. *)
 
-  val first : (unit -> 'a) -> (unit -> 'a) -> 'a
+  val first : ?label:string -> (unit -> 'a) -> (unit -> 'a) -> 'a
   (** [first f g] runs [f ()] and [g ()] concurrently.
 
       They run in a new cancellation sub-context, and when one finishes the other is cancelled.
@@ -213,7 +213,7 @@ module Fiber : sig
       This is because there is a period of time after the first operation succeeds,
       but before its fiber finishes, during which the other operation may also succeed. *)
 
-  val any : (unit -> 'a) list -> 'a
+  val any : ?label:string -> (unit -> 'a) list -> 'a
   (** [any fs] is like [first], but for any number of fibers.
 
       [any []] just waits forever (or until cancelled). *)

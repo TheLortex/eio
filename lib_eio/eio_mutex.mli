@@ -18,7 +18,7 @@ type t
 exception Poisoned of exn
 (** Raised if you attempt to use a mutex that has been disabled. *)
 
-val create : unit -> t
+val create :  ?label:string -> unit -> t
 (** [create ()] creates an initially unlocked mutex. *)
 
 val use_rw : protect:bool -> t -> (unit -> 'a) -> 'a

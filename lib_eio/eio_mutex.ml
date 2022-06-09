@@ -18,9 +18,9 @@ type t = {
    [locked t] means the holder has the ability to unlock [t]. *)
 
 (* {R} t = create () {mutex t R} *)
-let create () =
+let create ?label () =
   let id = Ctf.mint_id () in
-  Ctf.note_created id Ctf.Mutex;
+  Ctf.note_created ?label id Ctf.Mutex;
   {
     id;
     mutex = Mutex.create ();
@@ -35,7 +35,7 @@ let unlock t =
   (* We now have ownership of [t.state] and [t.waiters]. *)
   Ctf.note_signal t.id;
   match t.state with
-  | Unlocked -> 
+  | Unlocked ->
     Mutex.unlock t.mutex;
     let ex = Sys_error "Eio.Mutex.unlock: already unlocked!" in
     t.state <- Poisoned ex;
@@ -63,7 +63,7 @@ let lock t =
            {locked t * R} *)
         ()
     end
-  | Unlocked -> 
+  | Unlocked ->
     Ctf.note_read t.id;
     t.state <- Locked;          (* We transfer R from the state to our caller. *)
     (* {locked t * R} *)
@@ -80,7 +80,7 @@ let try_lock t =
     Ctf.note_try_read t.id;
     Mutex.unlock t.mutex;
     false
-  | Unlocked -> 
+  | Unlocked ->
     Ctf.note_read t.id;
     t.state <- Locked;          (* We transfer R from the state to our caller. *)
     Mutex.unlock t.mutex;

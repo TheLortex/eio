@@ -69,14 +69,14 @@ let fork_promise_exn ~sw f =
     );
   p
 
-let all xs =
-  Switch.run @@ fun sw ->
+let all ?label xs =
+  Switch.run ?label @@ fun sw ->
   List.iter (fork ~sw) xs
 
-let both f g = all [f; g]
+let both ?label f g = all ?label [f; g]
 
-let pair f g =
-  Switch.run @@ fun sw ->
+let pair ?label f g =
+  Switch.run ?label @@ fun sw ->
   let x = fork_promise ~sw f in
   let y = g () in
   (Promise.await_exn x, y)
@@ -103,8 +103,10 @@ let await_cancel () =
   Suspend.enter @@ fun fiber enqueue ->
   Cancel.Fiber_context.set_cancel_fn fiber (fun ex -> enqueue (Error ex))
 
-let any fs =
+let any ?label fs =
   let r = ref `None in
+  let id = Ctf.mint_id () in
+  Ctf.note_created ?label id Ctf.Choose;
   let parent_c =
     Cancel.sub_unchecked (fun cc ->
         let wrap h =
@@ -156,7 +158,7 @@ let any fs =
     Printexc.raise_with_backtrace ex bt
   | `None, None -> assert false
 
-let first f g = any [f; g]
+let first ?label f g = any ?label [f; g]
 
 let check () =
   let ctx = Effect.perform Cancel.Get_context in

@@ -16,8 +16,8 @@
 type 'a t
 (** A queue of items of type ['a]. *)
 
-val create : int -> 'a t
-(** [create capacity] is a new stream which can hold up to [capacity] items without blocking writers.
+val create : ?label:string -> int -> 'a t
+(** [create ~label capacity] is a new stream which can hold up to [capacity] items without blocking writers.
 
     - If [capacity = 0] then writes block until a reader is ready.
     - If [capacity = 1] then this acts as a "mailbox".

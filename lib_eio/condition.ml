@@ -1,6 +1,15 @@
-type t = Broadcast.t
+type t = {
+  b: Broadcast.t;
+  id: Ctf.id;
+}
 
-let create () = Broadcast.create ()
+let create ?label () =
+  let id = Ctf.mint_id () in
+  Ctf.note_created ?label id Condition;
+  {
+    b = Broadcast.create ();
+    id;
+  }
 
 let await_generic ?mutex t =
   match
@@ -10,10 +19,12 @@ let await_generic ?mutex t =
           Option.iter Eio_mutex.unlock mutex;
           enqueue (Error ex)
         | None ->
-          match Broadcast.suspend t (fun () -> enqueue (Ok ())) with
+          match Broadcast.suspend t.b (fun () -> enqueue (Ok ())) with
           | None ->
+            Ctf.note_read ~reader:t.id (Fiber_context.tid ctx);
             Option.iter Eio_mutex.unlock mutex
           | Some request ->
+            Ctf.note_read ~reader:t.id (Fiber_context.tid ctx);
             Option.iter Eio_mutex.unlock mutex;
             Fiber_context.set_cancel_fn ctx (fun ex ->
                 if Broadcast.cancel request then enqueue (Error ex)
@@ -30,4 +41,4 @@ let await_generic ?mutex t =
 let await t mutex = await_generic ~mutex t
 let await_no_mutex t = await_generic t
 
-let broadcast = Broadcast.resume_all
+let broadcast t = Broadcast.resume_all t.b

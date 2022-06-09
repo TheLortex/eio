@@ -41,8 +41,8 @@
 
 type t
 
-val create : unit -> t
-(** [create ()] creates a new condition variable. *)
+val create : ?label:string -> unit -> t
+(** [create ~label ()] creates a new condition variable labelled [label]. *)
 
 val await : t -> Eio_mutex.t -> unit
 (** [await t mutex] suspends the current fiber until it is notified by [t].
