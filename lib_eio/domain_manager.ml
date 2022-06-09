@@ -27,6 +27,8 @@ let run (t : #t) fn =
     ignore (Cancel.Fiber_context.clear_cancel_fn ctx : bool);
     x
   | exception ex ->
+    Printf.eprintf "EXN\n%!";
+    Printexc.print_backtrace stderr;
     ignore (Cancel.Fiber_context.clear_cancel_fn ctx : bool);
     match Promise.peek cancelled with
     | Some (Cancel.Cancelled ex2 as cex) when ex == ex2 ->

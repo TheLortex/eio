@@ -192,9 +192,9 @@ module Fiber_context = struct
   let clear_cancel_fn t =
     Atomic.exchange t.cancel_fn None <> None
 
-  let make ~cc =
+  let make ?label ~cc () =
     let tid = Ctf.mint_id () in
-    Ctf.note_created tid Ctf.Task;
+    Ctf.note_created ?label tid Ctf.Task;
     let t = { tid; cancel_context = cc; cancel_node = None; cancel_fn = Atomic.make None } in
     t.cancel_node <- Some (Lwt_dllist.add_r t cc.fibers);
     t
@@ -202,7 +202,7 @@ module Fiber_context = struct
   let make_root () =
     let cc = create ~protected:false in
     cc.state <- On;
-    make ~cc
+    make ~cc ()
 
   let destroy t =
     Option.iter Lwt_dllist.remove t.cancel_node

@@ -192,7 +192,7 @@ module Fiber : sig
       A fiber runs until it performs an IO operation (directly or indirectly).
       At that point, it may be suspended and the next fiber on the run queue runs. *)
 
-  val both : (unit -> unit) -> (unit -> unit) -> unit
+  val both : ?label:string -> (unit -> unit) -> (unit -> unit) -> unit
   (** [both f g] runs [f ()] and [g ()] concurrently.
 
       They run in a new cancellation sub-context, and
@@ -207,14 +207,14 @@ module Fiber : sig
 
       If both fibers fail, {!Exn.combine} is used to combine the exceptions. *)
 
-  val pair : (unit -> 'a) -> (unit -> 'b) -> 'a * 'b
+  val pair : ?label:string -> (unit -> 'a) -> (unit -> 'b) -> 'a * 'b
   (** [pair f g] is like [both], but returns the two results. *)
 
-  val all : (unit -> unit) list -> unit
+  val all : ?label:string -> (unit -> unit) list -> unit
   (** [all fs] is like [both], but for any number of fibers.
       [all []] returns immediately. *)
 
-  val first : (unit -> 'a) -> (unit -> 'a) -> 'a
+  val first : ?label:string -> (unit -> 'a) -> (unit -> 'a) -> 'a
   (** [first f g] runs [f ()] and [g ()] concurrently.
 
       They run in a new cancellation sub-context, and when one finishes the other is cancelled.
@@ -224,7 +224,7 @@ module Fiber : sig
 
       If both fibers fail, {!Exn.combine} is used to combine the exceptions. *)
 
-  val any : (unit -> 'a) list -> 'a
+  val any : ?label:string -> (unit -> 'a) list -> 'a
   (** [any fs] is like [first], but for any number of fibers.
 
       [any []] just waits forever (or until cancelled). *)
@@ -233,7 +233,7 @@ module Fiber : sig
   (** [await_cancel ()] waits until cancelled.
       @raise Cancel.Cancelled *)
 
-  val fork : sw:Switch.t -> (unit -> unit) -> unit
+  val fork : ?label:string -> sw:Switch.t -> (unit -> unit) -> unit
   (** [fork ~sw fn] runs [fn ()] in a new fiber, but does not wait for it to complete.
 
       The new fiber is attached to [sw] (which can't finish until the fiber ends).
@@ -272,7 +272,7 @@ module Fiber : sig
       If that raises in turn, the parent switch is failed.
       [on_handler_error] is not called if the parent [sw] is itself cancelled. *)
 
-  val fork_promise : sw:Switch.t -> (unit -> 'a) -> 'a Promise.or_exn
+  val fork_promise : ?label:string -> sw:Switch.t -> (unit -> 'a) -> 'a Promise.or_exn
   (** [fork_promise ~sw fn] schedules [fn ()] to run in a new fiber and returns a promise for its result.
 
       This is just a convenience wrapper around {!fork}.
@@ -331,7 +331,7 @@ module Mutex : sig
   (** The type for a concurrency-friendly Mutex. 
       Do not mix it up with the Domain-wise Stdlib.Mutex. *)
   
-  val create : unit -> t
+  val create : ?label:string -> unit -> t
   (** [create ()] creates an initially unlocked mutex. *)
   
   val lock : t -> unit
@@ -359,7 +359,7 @@ module Condition : sig
   type t
   (** Condition variables to synchronize between fibers. *)
   
-  val create : unit -> t
+  val create : ?label:string -> unit -> t
   (** [create ()] creates a new condition variable *)
   
   val await : ?mutex:Mutex.t -> t -> unit
@@ -394,7 +394,7 @@ module Stream : sig
   type 'a t
   (** A queue of items of type ['a]. *)
 
-  val create : int -> 'a t
+  val create : ?label:string -> int -> 'a t
   (** [create capacity] is a new stream which can hold up to [capacity] items without blocking writers.
 
       - If [capacity = 0] then writes block until a reader is ready.
@@ -1373,7 +1373,7 @@ module Private : sig
     val make_root : unit -> t
     (** Make a new root context for a new domain. *)
 
-    val make : cc:Cancel.t -> t
+    val make : ?label:string -> cc:Cancel.t -> unit -> t
     (** [make ~cc] is a new fiber context, initially attached to the given cancellation context. *)
 
     val destroy : t -> unit

@@ -26,10 +26,10 @@ let validate t =
   assert (Waiters.is_empty t.readers || Queue.is_empty t.items);
   assert (Waiters.is_empty t.writers || Queue.length t.items = t.capacity)
 
-let create capacity =
+let create ?label capacity =
   assert (capacity >= 0);
   let id = Ctf.mint_id () in
-  Ctf.note_created id Ctf.Stream;
+  Ctf.note_created ?label id Ctf.Stream;
   {
     mutex = Mutex.create ();
     id;

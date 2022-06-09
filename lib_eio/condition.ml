@@ -4,11 +4,14 @@ type t = {
   id: Ctf.id
 }
 
-let create () = {
-  waiters = Waiters.create ();
-  id = Ctf.mint_id ();
-  mutex = Mutex.create ()
-}
+let create ?label () =
+  let id = Ctf.mint_id () in
+  Ctf.note_created ?label id Ctf.Condition;
+  {
+    waiters = Waiters.create ();
+    id ;
+    mutex = Mutex.create ()
+  }
 
 let await ?mutex t = 
   Mutex.lock t.mutex;

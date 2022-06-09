@@ -9,9 +9,9 @@ type t = {
   mutable state : state;
 }
 
-let create () =
+let create ?label () =
   let id = Ctf.mint_id () in
-  Ctf.note_created id Ctf.Mutex;
+  Ctf.note_created ?label id Ctf.Mutex;
   {
     id;
     mutex = Mutex.create ();
