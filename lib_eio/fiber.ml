@@ -8,10 +8,10 @@ let yield () =
 let fork_raw new_fiber f =
   Effect.perform (Fork (new_fiber, f))
 
-let fork ?label ~sw f =
+let fork ~sw f =
   Switch.check_our_domain sw;
   if Cancel.is_on sw.cancel then (
-    let new_fiber = Cancel.Fiber_context.make ?label ~cc:sw.cancel () in
+    let new_fiber = Cancel.Fiber_context.make ~cc:sw.cancel () in
     fork_raw new_fiber @@ fun () ->
     Switch.with_op sw @@ fun () ->
     match f () with
@@ -22,9 +22,9 @@ let fork ?label ~sw f =
       Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:(Some ex)
   ) (* else the fiber should report the error to [sw], but [sw] is failed anyway *)
 
-let fork_promise ?label ~sw f =
+let fork_promise ~sw f =
   Switch.check_our_domain sw;
-  let new_fiber = Cancel.Fiber_context.make ?label ~cc:sw.Switch.cancel () in
+  let new_fiber = Cancel.Fiber_context.make ~cc:sw.Switch.cancel () in
   let p, r = Promise.create_with_id (Cancel.Fiber_context.tid new_fiber) in
   fork_raw new_fiber (fun () ->
       match Switch.with_op sw f with
@@ -88,14 +88,14 @@ let fork_on_accept ~on_handler_error ~sw:adopting_sw accept handle =
       Ctf.note_resolved (Cancel.Fiber_context.tid new_fiber) ~ex:(Some ex)
 
 let all ?label xs =
-  Switch.run @@ fun sw ->
-  List.iteri (fun i -> fork ?label:(Option.map (fun v -> v  ^ " " ^ string_of_int i) label) ~sw) xs
+  Switch.run ?label @@ fun sw ->
+  List.iteri (fun i -> fork ~sw) xs
 
 let both ?label f g = all ?label [f; g]
 
 let pair ?label f g =
-  Switch.run @@ fun sw ->
-  let x = fork_promise ?label ~sw f in
+  Switch.run ?label @@ fun sw ->
+  let x = fork_promise ~sw f in
   let y = g () in
   (Promise.await_exn x, y)
 
@@ -151,7 +151,7 @@ let any ?label fs =
           | [f] -> wrap f; []
           | f :: fs ->
             let label = Option.map (fun l -> l ^ "_" ^ (string_of_int c)) label in
-            let new_fiber = Cancel.Fiber_context.make ?label ~cc () in
+            let new_fiber = Cancel.Fiber_context.make ~cc () in
             let p, r = Promise.create_with_id (Cancel.Fiber_context.tid new_fiber) in
             fork_raw new_fiber (fun () ->
                 match wrap f with

@@ -49,8 +49,8 @@ module Switch : sig
 
   (** {2 Switch creation} *)
 
-  val run : (t -> 'a) -> 'a
-  (** [run fn] runs [fn] with a fresh switch (initially on).
+  val run : ?label:string -> (t -> 'a) -> 'a
+  (** [run ~label fn] runs [fn] with a fresh switch (initially on). 
 
       When [fn] finishes, [run] waits for all fibers registered with the switch to finish,
       and then releases all attached resources.
@@ -58,7 +58,7 @@ module Switch : sig
       If {!fail} is called, [run] will re-raise the exception (after everything is cleaned up).
       If [fn] raises an exception, it is passed to {!fail}. *)
 
-  val run_protected : (t -> 'a) -> 'a
+  val run_protected : ?label:string -> (t -> 'a) -> 'a
   (** [run_protected fn] is like [run] but ignores cancellation requests from the parent context. *)
 
   (** {2 Cancellation and failure} *)
@@ -193,9 +193,9 @@ module Fiber : sig
       At that point, it may be suspended and the next fiber on the run queue runs. *)
 
   val both : ?label:string -> (unit -> unit) -> (unit -> unit) -> unit
-  (** [both f g] runs [f ()] and [g ()] concurrently.
+  (** [both ~label f g] runs [f ()] and [g ()] concurrently.
 
-      They run in a new cancellation sub-context, and
+      They run in a new cancellation sub-context (labelled [label]), and
       if either raises an exception, the other is cancelled.
       [both] waits for both functions to finish even if one raises
       (it will then re-raise the original exception).
@@ -208,14 +208,14 @@ module Fiber : sig
       If both fibers fail, {!Exn.combine} is used to combine the exceptions. *)
 
   val pair : ?label:string -> (unit -> 'a) -> (unit -> 'b) -> 'a * 'b
-  (** [pair f g] is like [both], but returns the two results. *)
+  (** [pair ~label f g] is like [both], but returns the two results. *)
 
   val all : ?label:string -> (unit -> unit) list -> unit
-  (** [all fs] is like [both], but for any number of fibers.
+  (** [all ~label fs] is like [both], but for any number of fibers.
       [all []] returns immediately. *)
 
   val first : ?label:string -> (unit -> 'a) -> (unit -> 'a) -> 'a
-  (** [first f g] runs [f ()] and [g ()] concurrently.
+  (** [first ~label f g] runs [f ()] and [g ()] concurrently.
 
       They run in a new cancellation sub-context, and when one finishes the other is cancelled.
       If one raises, the other is cancelled and the exception is reported.
@@ -225,7 +225,7 @@ module Fiber : sig
       If both fibers fail, {!Exn.combine} is used to combine the exceptions. *)
 
   val any : ?label:string -> (unit -> 'a) list -> 'a
-  (** [any fs] is like [first], but for any number of fibers.
+  (** [any ~label fs] is like [first], but for any number of fibers.
 
       [any []] just waits forever (or until cancelled). *)
 
@@ -233,7 +233,7 @@ module Fiber : sig
   (** [await_cancel ()] waits until cancelled.
       @raise Cancel.Cancelled *)
 
-  val fork : ?label:string -> sw:Switch.t -> (unit -> unit) -> unit
+  val fork : sw:Switch.t -> (unit -> unit) -> unit
   (** [fork ~sw fn] runs [fn ()] in a new fiber, but does not wait for it to complete.
 
       The new fiber is attached to [sw] (which can't finish until the fiber ends).
@@ -272,7 +272,7 @@ module Fiber : sig
       If that raises in turn, the parent switch is failed.
       [on_handler_error] is not called if the parent [sw] is itself cancelled. *)
 
-  val fork_promise : ?label:string -> sw:Switch.t -> (unit -> 'a) -> 'a Promise.or_exn
+  val fork_promise : sw:Switch.t -> (unit -> 'a) -> 'a Promise.or_exn
   (** [fork_promise ~sw fn] schedules [fn ()] to run in a new fiber and returns a promise for its result.
 
       This is just a convenience wrapper around {!fork}.
@@ -356,19 +356,19 @@ end
 (** A condition variable *)
 module Condition : sig 
 
-  type t
+  type 'a t
   (** Condition variables to synchronize between fibers. *)
   
-  val create : ?label:string -> unit -> t
+  val create : ?label:string -> unit -> _ t
   (** [create ()] creates a new condition variable *)
   
-  val await : ?mutex:Mutex.t -> t -> unit
+  val await : ?mutex:Mutex.t -> 'a t -> 'a
   (** [await ~mutex cond] pauses the current fiber until it is notified by [cond]. 
       If [mutex] is set, it is unlocked while the fiber is waiting and locked when 
       it is woken up.
   *)
   
-  val broadcast : t -> unit
+  val broadcast : 'a t -> 'a -> unit
   (** [broadcast cond] wakes up waiting fibers. 
       If no fibers are waiting, nothing happens and the function returns. *)
   
@@ -1373,7 +1373,7 @@ module Private : sig
     val make_root : unit -> t
     (** Make a new root context for a new domain. *)
 
-    val make : ?label:string -> cc:Cancel.t -> unit -> t
+    val make : cc:Cancel.t -> unit -> t
     (** [make ~cc] is a new fiber context, initially attached to the given cancellation context. *)
 
     val destroy : t -> unit
