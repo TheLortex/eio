@@ -19,7 +19,7 @@ open Eio.Std
 [@@@alert "-unstable"]
 
 (* Run an event loop in the current domain, using [fn x] as the root fiber. *)
-let run_event_loop fn x =
+let run_event_loop ~loc fn x =
   Sched.with_sched @@ fun sched ->
   let open Effect.Deep in
   let extra_effects : _ effect_handler = {
@@ -58,7 +58,7 @@ let run_event_loop fn x =
       | _ -> None
   }
   in
-  Sched.run ~extra_effects sched fn x
+  Sched.run ~loc ~extra_effects sched fn x
 
 let v = object
   inherit Eio.Domain_manager.t
@@ -70,13 +70,13 @@ let v = object
       );
     Domain.join (Option.get !domain)
 
-  method run fn =
+  method run ?(loc=Eio.Private.Ctf.get_caller ()) fn =
     let domain = ref None in
     Eio.Private.Suspend.enter (fun ctx enqueue ->
         let cancelled, set_cancelled = Promise.create () in
         Eio.Private.Fiber_context.set_cancel_fn ctx (Promise.resolve set_cancelled);
         domain := Some (Domain.spawn (fun () ->
-            Fun.protect (run_event_loop (fun () -> fn ~cancelled))
+            Fun.protect (run_event_loop ~loc (fun () -> fn ~cancelled))
               ~finally:(fun () -> enqueue (Ok ()))))
       );
     Domain.join (Option.get !domain)

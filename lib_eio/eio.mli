@@ -58,6 +58,10 @@ module Std : sig
     (** Same as {!Eio.traceln}. *)
 end
 
+module Ctf : sig
+  val with_tracing : (unit -> 'a) -> 'a
+end
+
 (** {1 Cross-platform OS API}
 
     The general pattern here is that each type of resource has a set of functions for using it,
@@ -89,7 +93,7 @@ module Domain_manager : sig
   class virtual t : object
     method virtual run_raw : 'a. (unit -> 'a) -> 'a
 
-    method virtual run : 'a. (cancelled:exn Promise.t -> 'a) -> 'a
+    method virtual run : 'a. ?loc:string -> (cancelled:exn Promise.t -> 'a) -> 'a
     (** [t#run fn] runs [fn ~cancelled] in a new domain.
 
         If the calling fiber is cancelled, [cancelled] becomes resolved to the {!Cancel.Cancelled} exception.

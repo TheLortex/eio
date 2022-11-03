@@ -28,7 +28,7 @@ let rec use_exn_list op xs k =
 let is_open t = Rcfd.is_open t.fd
 
 let close t =
-  Ctf.label "close";
+  Ctf.log "close";
   Switch.remove_hook t.release_hook;
   if t.close_unix then (
     if not (Rcfd.close t.fd) then raise (err_closed "close")

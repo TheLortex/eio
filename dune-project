@@ -25,6 +25,7 @@
   (psq (>= 0.2.0))
   (fmt (>= 0.8.9))
   (hmap (>= 0.8.1))
+  (astring (>= 0.8.5))
   (crowbar (and (>= 0.2) :with-test))
   (mtime (>= 2.0.0))
   (mdx (and (>= 2.2.0) :with-test))

@@ -326,7 +326,7 @@ module Low_level = struct
       | { fd = `Closed; _ } -> false
 
     let close t =
-      Ctf.label "close";
+      Ctf.log "close";
       let fd = get "close" t in
       t.fd <- `Closed;
       Eio.Switch.remove_hook t.release_hook;
@@ -381,7 +381,7 @@ module Low_level = struct
       | { fd = `Closed; _ } -> false
 
     let close t =
-      Ctf.label "close";
+      Ctf.log "close";
       let fd = get "close" t in
       t.fd <- `Closed;
       Eio.Switch.remove_hook t.release_hook;
@@ -999,7 +999,7 @@ let domain_mgr ~run_event_loop =
     method run_raw fn =
       run_raw ~pre_spawn:ignore fn
 
-    method run fn =
+    method run ?loc:_ fn =
       let cancelled, set_cancelled = Promise.create () in
       let pre_spawn k = Suspended.set_cancel_fn k (Promise.resolve set_cancelled) in
       run_raw ~pre_spawn @@ (fun () ->
@@ -1289,7 +1289,7 @@ let rec run2 : type a. (_ -> a) -> a = fun main ->
     }
   in
   let main_status = ref `Running in
-  let new_fiber = Fiber_context.make_root () in
+  let new_fiber = Fiber_context.make_root ~loc:(Eio.Private.Ctf.get_caller ()) () in
   fork ~new_fiber (fun () ->
       begin match main stdenv with
         | v -> main_status := `Done v

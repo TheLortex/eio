@@ -30,14 +30,14 @@ type stdenv = <
   debug : Eio.Debug.t;
 >
 
-let run main =
+let run ?(loc=Eio.Private.Ctf.get_caller ()) main =
   (* SIGPIPE makes no sense in a modern application. *)
   Sys.(set_signal sigpipe Signal_ignore);
   Sys.(set_signal sigchld (Signal_handle (fun (_:int) -> Children.handle_sigchld ())));
   let stdin = (Flow.of_fd Low_level.Fd.stdin :> <Eio.Flow.source; Eio_unix.unix_fd>) in
   let stdout = (Flow.of_fd Low_level.Fd.stdout :> <Eio.Flow.sink; Eio_unix.unix_fd>) in
   let stderr = (Flow.of_fd Low_level.Fd.stderr :> <Eio.Flow.sink; Eio_unix.unix_fd>) in
-  Domain_mgr.run_event_loop main @@ object (_ : stdenv)
+  Domain_mgr.run_event_loop ~loc main @@ object (_ : stdenv)
     method stdin = stdin
     method stdout = stdout
     method stderr = stderr
