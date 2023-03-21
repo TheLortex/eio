@@ -98,23 +98,27 @@ module Control : sig
   (** [stop t] stops recording to [t] (which must be the current trace buffer). *)
 end
 
-(** Types *)
-
-type Runtime_events.User.tag += Created
-type Runtime_events.User.tag += Failed
-type Runtime_events.User.tag += Read
-type Runtime_events.User.tag += Try_read
-type Runtime_events.User.tag += Resolved
-type Runtime_events.User.tag += Label
-type Runtime_events.User.tag += Switch
-type Runtime_events.User.tag += Increase
-type Runtime_events.User.tag += Value
-type Runtime_events.User.tag += Signal
-type Runtime_events.User.tag += Suspend
+(** Types and their associated tags *)
 
 val created_type : (id * event) Runtime_events.Type.t
+
+type Runtime_events.User.tag += Created
+
 val labelled_type : (id * string) Runtime_events.Type.t
+
+type Runtime_events.User.tag += Failed | Label | Increase | Value
+
 val two_ids_type : (id * id) Runtime_events.Type.t
+
+type Runtime_events.User.tag += Read |Try_read | Signal
+
+(* int type *)
+
+type Runtime_events.User.tag += Resolved | Switch
+
+(* unit type *)
+
+type Runtime_events.User.tag += Suspend
 
 (**/**)
 
