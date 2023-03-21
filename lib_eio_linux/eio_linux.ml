@@ -505,6 +505,14 @@ let submit_pending_io st =
     Ctf.label "submit_pending_io";
     fn st
 
+type Runtime_events.User.tag += Eio_linux
+
+let fiber_ev = Runtime_events.User.register
+          "eio_linux.fiber" Eio_linux Runtime_events.Type.span
+
+let sleep_ev = Runtime_events.User.register
+  "eio_linux.sleep" Eio_linux Runtime_events.Type.span
+
 (* Switch control to the next ready continuation.
    If none is ready, wait until we get an event to wake one and then switch.
    Returns only if there is nothing to do and no queued operations. *)
@@ -515,9 +523,11 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
   | None -> assert false    (* We should always have an IO job, at least *)
   | Some Thread (k, v) ->   (* We already have a runnable task *)
     Fiber_context.clear_cancel_fn k.fiber;
+    Runtime_events.User.write fiber_ev Begin;
     Suspended.continue k v
   | Some Failed_thread (k, ex) ->
     Fiber_context.clear_cancel_fn k.fiber;
+    Runtime_events.User.write fiber_ev Begin;
     Suspended.discontinue k ex
   | Some IO -> (* Note: be sure to re-inject the IO task before continuing! *)
     (* This is not a fair scheduler: timers always run before all other IO *)
@@ -525,6 +535,7 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
     match Zzz.pop ~now sleep_q with
     | `Due k ->
       Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
+      Runtime_events.User.write fiber_ev Begin;
       Suspended.continue k ()                   (* A sleeping task is now due *)
     | `Wait_until _ | `Nothing as next_due ->
       (* Handle any pending events before submitting. This is faster. *)
@@ -559,7 +570,9 @@ let rec schedule ({run_q; sleep_q; mem_q; uring; _} as st) : [`Exit_scheduler] =
                If [need_wakeup] is still [true], this is fine because we don't promise to do that.
                If [need_wakeup = false], a wake-up event will arrive and wake us up soon. *)
             Ctf.(note_hiatus Wait_for_work);
+            Runtime_events.User.write sleep_ev Begin;
             let result = Uring.wait ?timeout uring in
+            Runtime_events.User.write sleep_ev End;
             Ctf.note_resume system_thread;
             Atomic.set st.need_wakeup false;
             Lf_queue.push run_q IO;                   (* Re-inject IO job in the run queue *)
@@ -586,15 +599,21 @@ and handle_complete st ~runnable result =
     complete_rw_req st req result
   | Job k ->
     Fiber_context.clear_cancel_fn k.fiber;
-    if result >= 0 then Suspended.continue k result
+    if result >= 0 then
+      (Runtime_events.User.write fiber_ev Begin;
+      Suspended.continue k result)
     else (
       match Fiber_context.get_error k.fiber with
-        | None -> Suspended.continue k result
+        | None ->
+          Runtime_events.User.write fiber_ev Begin;
+          Suspended.continue k result
         | Some e ->
           (* If cancelled, report that instead. *)
+          Runtime_events.User.write fiber_ev Begin;
           Suspended.discontinue k e
     )
   | Job_no_cancel k ->
+    Runtime_events.User.write fiber_ev Begin;
     Suspended.continue k result
   | Cancel_job ->
     begin match result with
@@ -612,20 +631,27 @@ and handle_complete st ~runnable result =
        We already do that with rw jobs. *)
     begin match Fiber_context.get_error k.fiber with
       | None -> f result
-      | Some e -> Suspended.discontinue k e
+      | Some e ->
+        Runtime_events.User.write fiber_ev Begin;
+        Suspended.discontinue k e
     end
 and complete_rw_req st ({len; cur_off; action; _} as req) res =
   Fiber_context.clear_cancel_fn action.fiber;
   match res, len with
-  | 0, _ -> Suspended.discontinue action End_of_file
+  | 0, _ ->
+    Runtime_events.User.write fiber_ev Begin;
+    Suspended.discontinue action End_of_file
   | e, _ when e < 0 ->
     begin match Fiber_context.get_error action.fiber with
-      | Some e -> Suspended.discontinue action e        (* If cancelled, report that instead. *)
+      | Some e ->
+        Runtime_events.User.write fiber_ev Begin;
+        Suspended.discontinue action e        (* If cancelled, report that instead. *)
       | None ->
         if errno_is_retry e then (
           submit_rw_req st req;
           schedule st
         ) else (
+          Runtime_events.User.write fiber_ev Begin;
           Suspended.continue action e
         )
     end
@@ -633,16 +659,24 @@ and complete_rw_req st ({len; cur_off; action; _} as req) res =
     req.cur_off <- req.cur_off + n;
     submit_rw_req st req;
     schedule st
-  | _, Exactly len -> Suspended.continue action len
-  | n, Upto _ -> Suspended.continue action n
+  | _, Exactly len ->
+    Runtime_events.User.write fiber_ev Begin;
+    Suspended.continue action len
+  | n, Upto _ ->
+    Runtime_events.User.write fiber_ev Begin;
+    Suspended.continue action n
 
 module Low_level = struct
   let alloc_buf_or_wait st k =
     match st.mem with
-    | None -> Suspended.discontinue k (Failure "No fixed buffer available")
+    | None ->
+      Runtime_events.User.write fiber_ev Begin;
+      Suspended.discontinue k (Failure "No fixed buffer available")
     | Some mem ->
       match Uring.Region.alloc mem with
-      | buf -> Suspended.continue k buf
+      | buf ->
+        Runtime_events.User.write fiber_ev Begin;
+        Suspended.continue k buf
       | exception Uring.Region.No_space ->
         Queue.push k st.mem_q;
         schedule st
@@ -1416,6 +1450,8 @@ let rec run : type a.
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
     Ctf.note_switch (Fiber_context.tid fiber);
+    Ctf.label "fork";
+    Runtime_events.User.write fiber_ev Begin;
     match_with fn ()
       { retc = (fun () -> Fiber_context.destroy fiber; schedule st);
         exnc = (fun ex ->
@@ -1423,10 +1459,13 @@ let rec run : type a.
             Printexc.raise_with_backtrace ex (Printexc.get_raw_backtrace ())
           );
         effc = fun (type a) (e : a Effect.t) ->
+          Runtime_events.User.write fiber_ev End;
           match e with
           | Enter fn -> Some (fun k ->
               match Fiber_context.get_error fiber with
-              | Some e -> discontinue k e
+              | Some e ->
+                Runtime_events.User.write fiber_ev Begin;
+                discontinue k e
               | None ->
                 let k = { Suspended.k; fiber } in
                 fn st k;
@@ -1443,6 +1482,7 @@ let rec run : type a.
             )
           | Cancel job -> Some (fun k ->
               enqueue_cancel job st;
+              Runtime_events.User.write fiber_ev Begin;
               continue k ()
             )
           | Low_level.EWrite args -> Some (fun k ->
@@ -1453,7 +1493,9 @@ let rec run : type a.
           | Low_level.Sleep_until time -> Some (fun k ->
               let k = { Suspended.k; fiber } in
               match Fiber_context.get_error fiber with
-              | Some ex -> Suspended.discontinue k ex
+              | Some ex ->
+                Runtime_events.User.write fiber_ev Begin;
+                Suspended.discontinue k ex
               | None ->
                 let job = Zzz.add sleep_q time k in
                 Fiber_context.set_cancel_fn fiber (fun ex ->
@@ -1478,10 +1520,13 @@ let rec run : type a.
             )
           | Eio_unix.Private.Await_readable fd -> Some (fun k ->
               match Fiber_context.get_error fiber with
-              | Some e -> discontinue k e
+              | Some e ->
+                Runtime_events.User.write fiber_ev Begin;
+                discontinue k e
               | None ->
                 let k = { Suspended.k; fiber } in
                 enqueue_poll_add_unix fd Uring.Poll_mask.(pollin + pollerr) st k (fun res ->
+                    Runtime_events.User.write fiber_ev Begin;
                     if res >= 0 then Suspended.continue k ()
                     else Suspended.discontinue k (Unix.Unix_error (Uring.error_of_errno res, "await_readable", ""))
                   );
@@ -1493,23 +1538,29 @@ let rec run : type a.
               | None ->
                 let k = { Suspended.k; fiber } in
                 enqueue_poll_add_unix fd Uring.Poll_mask.(pollout + pollerr) st k (fun res ->
+                    Runtime_events.User.write fiber_ev Begin;
                     if res >= 0 then Suspended.continue k ()
                     else Suspended.discontinue k (Unix.Unix_error (Uring.error_of_errno res, "await_writable", ""))
                   );
                 schedule st
             )
-          | Eio_unix.Private.Get_monotonic_clock -> Some (fun k -> continue k mono_clock)
+          | Eio_unix.Private.Get_monotonic_clock -> Some (fun k ->
+              Runtime_events.User.write fiber_ev Begin;
+              continue k mono_clock)
           | Eio_unix.Private.Socket_of_fd (sw, close_unix, fd) -> Some (fun k ->
+              Runtime_events.User.write fiber_ev Begin;
               let fd = FD.of_unix ~sw ~seekable:false ~close_unix fd in
               continue k (flow fd :> Eio_unix.socket)
             )
           | Eio_unix.Private.Socketpair (sw, domain, ty, protocol) -> Some (fun k ->
+              Runtime_events.User.write fiber_ev Begin;
               let a, b = Unix.socketpair ~cloexec:true domain ty protocol in
               let a = FD.of_unix ~sw ~seekable:false ~close_unix:true a |> flow in
               let b = FD.of_unix ~sw ~seekable:false ~close_unix:true b |> flow in
               continue k ((a :> Eio_unix.socket), (b :> Eio_unix.socket))
             )
           | Eio_unix.Private.Pipe sw -> Some (fun k ->
+              Runtime_events.User.write fiber_ev Begin;
               let r, w = Unix.pipe ~cloexec:true () in
               (* See issue #319, PR #327 *)
               Unix.set_nonblock r;
@@ -1519,6 +1570,7 @@ let rec run : type a.
               continue k (r, w)
             )
           | Low_level.Alloc -> Some (fun k ->
+            Runtime_events.User.write fiber_ev Begin;
               match st.mem with
               | None -> continue k None
               | Some mem ->
@@ -1532,6 +1584,7 @@ let rec run : type a.
             )
           | Low_level.Free buf -> Some (fun k ->
               Low_level.free_buf st buf;
+              Runtime_events.User.write fiber_ev Begin;
               continue k ()
             )
           | _ -> None
