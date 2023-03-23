@@ -195,7 +195,7 @@ module Fiber_context = struct
 
   let make ?loc ~cc ~vars () =
     let tid = Ctf.mint_id () in
-    Ctf.note_created ?label:loc tid Ctf.Task;
+    Ctf.note_created ?loc tid Ctf.Task;
     let t = { tid; cancel_context = cc; cancel_node = None; cancel_fn = ignore; vars } in
     t.cancel_node <- Some (Lwt_dllist.add_r t cc.fibers);
     t

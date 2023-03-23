@@ -177,7 +177,8 @@ module Fiber : sig
       A fiber runs until it performs an IO operation (directly or indirectly).
       At that point, it may be suspended and the next fiber on the run queue runs. *)
 
-  val both : (unit -> unit) -> (unit -> unit) -> unit
+
+  val both : ?loc:string -> (unit -> unit) -> (unit -> unit) -> unit
   (** [both f g] runs [f ()] and [g ()] concurrently.
 
       They run in a new cancellation sub-context, and
@@ -192,14 +193,14 @@ module Fiber : sig
 
       If both fibers fail, {!Exn.combine} is used to combine the exceptions. *)
 
-  val pair : (unit -> 'a) -> (unit -> 'b) -> 'a * 'b
+  val pair : ?loc:string -> (unit -> 'a) -> (unit -> 'b) -> 'a * 'b
   (** [pair f g] is like [both], but returns the two results. *)
 
-  val all : (unit -> unit) list -> unit
+  val all : ?loc:string -> (unit -> unit) list -> unit
   (** [all fs] is like [both], but for any number of fibers.
       [all []] returns immediately. *)
 
-  val first : (unit -> 'a) -> (unit -> 'a) -> 'a
+  val first : ?loc:string -> (unit -> 'a) -> (unit -> 'a) -> 'a
   (** [first f g] runs [f ()] and [g ()] concurrently.
 
       They run in a new cancellation sub-context, and when one finishes the other is cancelled.
@@ -213,7 +214,7 @@ module Fiber : sig
       This is because there is a period of time after the first operation succeeds,
       but before its fiber finishes, during which the other operation may also succeed. *)
 
-  val any : (unit -> 'a) list -> 'a
+  val any : ?loc:string -> (unit -> 'a) list -> 'a
   (** [any fs] is like [first], but for any number of fibers.
 
       [any []] just waits forever (or until cancelled). *)
@@ -222,7 +223,7 @@ module Fiber : sig
   (** [await_cancel ()] waits until cancelled.
       @raise Cancel.Cancelled *)
 
-  val fork : sw:Switch.t -> (unit -> unit) -> unit
+  val fork : ?loc:string -> sw:Switch.t -> (unit -> unit) -> unit
   (** [fork ~sw fn] runs [fn ()] in a new fiber, but does not wait for it to complete.
 
       The new fiber is attached to [sw] (which can't finish until the fiber ends).
@@ -234,7 +235,7 @@ module Fiber : sig
       [fn] runs immediately, without switching to any other fiber first.
       The calling fiber is placed at the head of the run queue, ahead of any previous items. *)
 
-  val fork_sub : sw:Switch.t -> on_error:(exn -> unit) -> (Switch.t -> unit) -> unit
+  val fork_sub : ?loc:string -> sw:Switch.t -> on_error:(exn -> unit) -> (Switch.t -> unit) -> unit
   (** [fork_sub ~sw ~on_error fn] is like [fork], but it creates a new sub-switch for the fiber.
 
       This means that you can cancel the child switch without cancelling the parent.
@@ -244,13 +245,13 @@ module Fiber : sig
                       If it raises in turn, the parent switch is failed.
                       It is not called if the parent [sw] itself is cancelled. *)
 
-  val fork_promise : sw:Switch.t -> (unit -> 'a) -> 'a Promise.or_exn
+  val fork_promise : ?loc:string -> sw:Switch.t -> (unit -> 'a) -> 'a Promise.or_exn
   (** [fork_promise ~sw fn] schedules [fn ()] to run in a new fiber and returns a promise for its result.
 
       This is just a convenience wrapper around {!fork}.
       If [fn] raises an exception then the promise is resolved to the error, but [sw] is not failed. *)
 
-  val fork_daemon : sw:Switch.t -> (unit -> [`Stop_daemon]) -> unit
+  val fork_daemon : ?loc:string -> sw:Switch.t -> (unit -> [`Stop_daemon]) -> unit
   (** [fork_daemon] is like {!fork} except that instead of waiting for the fiber to finish,
       the switch will cancel it once all non-daemon fibers are done.
 
@@ -279,37 +280,37 @@ module Fiber : sig
         For the [Lwt_list.*_s] operations, just use the standard library function.
         e.g. [Lwt_list.iter_s] can be replaced by a plain [List.iter]. *)
 
-    val filter : ?max_fibers:int -> ('a -> bool) -> 'a list -> 'a list
+    val filter : ?loc:string -> ?max_fibers:int -> ('a -> bool) -> 'a list -> 'a list
     (** [filter f x] is like [List.filter f x] except that the invocations of [f] are
         run concurrently in separate fibers.
         @param max_fibers Maximum number of fibers to run concurrently *)
 
-    val map : ?max_fibers:int -> ('a -> 'b) -> 'a list -> 'b list
+    val map : ?loc:string -> ?max_fibers:int -> ('a -> 'b) -> 'a list -> 'b list
     (** [map f x] is like [List.map f x] except that the invocations of [f] are
         run concurrently in separate fibers.
         @param max_fibers Maximum number of fibers to run concurrently *)
 
-    val filter_map : ?max_fibers:int -> ('a -> 'b option) -> 'a list -> 'b list
+    val filter_map : ?loc:string -> ?max_fibers:int -> ('a -> 'b option) -> 'a list -> 'b list
     (** [filter_map f x] is like [List.filter_map f x] except that the
         invocations of [f] are run concurrently in separate fibers.
         @param max_fibers Maximum number of fibers to run concurrently *)
 
-    val iter : ?max_fibers:int -> ('a -> unit) -> 'a list -> unit
+    val iter : ?loc:string -> ?max_fibers:int -> ('a -> unit) -> 'a list -> unit
     (** [iter f x] is like [List.iter f x] except that the invocations of [f] are
         run concurrently in separate fibers.
         @param max_fibers Maximum number of fibers to run concurrently *)
   end
 
-  val filter : ?max_fibers:int -> ('a -> bool) -> 'a list -> 'a list
+  val filter : ?loc:string -> ?max_fibers:int -> ('a -> bool) -> 'a list -> 'a list
   [@@ocaml.deprecated "Use `Eio.Fiber.List.filter` instead."]
 
-  val map : ?max_fibers:int -> ('a -> 'b) -> 'a list -> 'b list
+  val map : ?loc:string -> ?max_fibers:int -> ('a -> 'b) -> 'a list -> 'b list
   [@@ocaml.deprecated "Use `Eio.Fiber.List.map instead."]
 
-  val filter_map : ?max_fibers:int -> ('a -> 'b option) -> 'a list -> 'b list
+  val filter_map : ?loc:string -> ?max_fibers:int -> ('a -> 'b option) -> 'a list -> 'b list
   [@@ocaml.deprecated "Use `Eio.Fiber.List.filter_map instead."]
 
-  val iter : ?max_fibers:int -> ('a -> unit) -> 'a list -> unit
+  val iter : ?loc:string -> ?max_fibers:int -> ('a -> unit) -> 'a list -> unit
   [@@ocaml.deprecated "Use `Eio.Fiber.List.iter instead."]
 
   (** {2 Fiber-local variables}

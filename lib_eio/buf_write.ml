@@ -488,10 +488,12 @@ let as_flow t =
     method read_into = read_into t
   end
 
-let with_flow ?(initial_size=0x1000) flow fn =
+let[@inline never] with_flow ~loc ~initial_size flow fn =
   Switch.run @@ fun sw ->
   let t = create ~sw initial_size in
-  Fiber.fork ~sw (fun () -> Flow.copy (as_flow t) flow);
+  Fiber.fork ~loc ~sw (fun () ->
+    Ctf.set_name "eio.buf_write.with_flow writer";
+    Flow.copy (as_flow t) flow);
   match fn t with
   | x ->
     close t;
@@ -499,10 +501,14 @@ let with_flow ?(initial_size=0x1000) flow fn =
   | exception ex ->
     close t;
     (* Raising the exception will cancel the writer thread, so do a flush first.
-       We don't want to flush if cancelled, but in that case the switch will
-       end the writer thread itself (and [flush] will raise). *)
+        We don't want to flush if cancelled, but in that case the switch will
+        end the writer thread itself (and [flush] will raise). *)
     flush t;
     raise ex
+
+let[@inline] with_flow ?(initial_size=0x1000) flow fn =
+  let loc = Ctf.get_caller () in
+  with_flow ~loc ~initial_size flow fn
 
 let rec serialize t writev =
   match await_batch t with

@@ -8,23 +8,23 @@ let has_working_uring v =
   | major :: _ -> int_of_string major > 5
   | [] -> false
 
-let run_io_uring ?fallback fn =
+let run_io_uring ~loc ?fallback fn =
   Log.info (fun f -> f "Selecting io-uring backend");
-  Eio_linux.run ?fallback (fun env -> fn (env :> Eio.Stdenv.t))
+  Eio_linux.run ~loc ?fallback (fun env -> fn (env :> Eio.Stdenv.t))
 
 let run_luv fn =
   Eio_luv.run (fun env -> fn (env :> Eio.Stdenv.t))
 
-let run fn =
+let[@inline never] run ~loc fn =
   match Sys.getenv_opt "EIO_BACKEND" with
-  | Some "io-uring" -> run_io_uring fn
+  | Some "io-uring" -> run_io_uring ~loc fn
   | Some "luv" ->
     Log.info (fun f -> f "Using luv backend");
     run_luv fn
   | None | Some "" ->
     begin match Luv.System_info.uname () with
       | Ok x when has_working_uring x.release ->
-        run_io_uring fn
+        run_io_uring ~loc fn
           ~fallback:(fun (`Msg msg) ->
               Log.info (fun f -> f "%s; using luv backend instead" msg);
               run_luv fn
@@ -34,3 +34,7 @@ let run fn =
         run_luv fn
     end
   | Some x -> Fmt.failwith "Unknown eio backend %S (from $EIO_BACKEND)" x
+
+let[@inline] run fn =
+  let loc = Eio.Private.Ctf.get_caller () in
+  run ~loc fn

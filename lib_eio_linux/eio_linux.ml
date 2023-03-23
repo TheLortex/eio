@@ -70,7 +70,7 @@ module FD = struct
     | { fd = `Closed; _ } -> false
 
   let close t =
-    Ctf.label "close";
+    Ctf.log "close";
     let fd = get_exn "close" t in
     t.fd <- `Closed;
     Eio.Switch.remove_hook t.release_hook;
@@ -243,7 +243,7 @@ let rec enqueue_job t fn =
 
 (* Cancellations always come from the same domain, so no need to send wake events here. *)
 let rec enqueue_cancel job t =
-  Ctf.label "cancel";
+  Ctf.log "cancel";
   match enqueue_job t (fun () -> Uring.cancel t.uring job Cancel_job) with
   | None -> Queue.push (fun t -> enqueue_cancel job t) t.io_q
   | Some _ -> ()
@@ -297,7 +297,7 @@ let rec submit_rw_req st ({op; file_offset; fd; buf; len; cur_off; action} as re
       )
     in
     if retry then (
-      Ctf.label "await-sqe";
+      Ctf.log "await-sqe";
       (* wait until an sqe is available *)
       Queue.push (fun st -> submit_rw_req st req) io_q
     )
@@ -312,7 +312,7 @@ let enqueue_read st action (file_offset,fd,buf,len) =
     | None -> FD.uring_file_offset fd
   in
   let req = { op=`R; file_offset; len; fd; cur_off = 0; buf; action } in
-  Ctf.label "read";
+  Ctf.log "read";
   submit_rw_req st req
 
 let rec enqueue_readv args st action =
@@ -322,7 +322,7 @@ let rec enqueue_readv args st action =
     | Some x -> x
     | None -> FD.uring_file_offset fd
   in
-  Ctf.label "readv";
+  Ctf.log "readv";
   match FD.get "readv" fd with
   | Error ex -> enqueue_failed_thread st action ex
   | Ok fd ->
@@ -339,7 +339,7 @@ let rec enqueue_writev args st action =
     | Some x -> x
     | None -> FD.uring_file_offset fd
   in
-  Ctf.label "writev";
+  Ctf.log "writev";
   match FD.get "writev" fd with
   | Error ex -> enqueue_failed_thread st action ex
   | Ok fd ->
@@ -351,7 +351,7 @@ let rec enqueue_writev args st action =
       Queue.push (fun st -> enqueue_writev args st action) st.io_q
 
 let rec enqueue_poll_add fd poll_mask st action =
-  Ctf.label "poll_add";
+  Ctf.log "poll_add";
   match FD.get "poll_add" fd with
   | Error ex -> enqueue_failed_thread st action ex
   | Ok unix_fd ->
@@ -363,7 +363,7 @@ let rec enqueue_poll_add fd poll_mask st action =
       Queue.push (fun st -> enqueue_poll_add fd poll_mask st action) st.io_q
 
 let rec enqueue_poll_add_unix fd poll_mask st action cb =
-  Ctf.label "poll_add";
+  Ctf.log "poll_add";
   let retry = with_cancel_hook ~action st (fun () ->
       Uring.poll_add st.uring fd poll_mask (Job_fn (action, cb))
     )
@@ -372,7 +372,7 @@ let rec enqueue_poll_add_unix fd poll_mask st action cb =
     Queue.push (fun st -> enqueue_poll_add_unix fd poll_mask st action cb) st.io_q
 
 let rec enqueue_close t action fd =
-  Ctf.label "close";
+  Ctf.log "close";
   let subm = enqueue_job t (fun () -> Uring.close t.uring fd (Job_no_cancel action)) in
   if subm = None then (* wait until an sqe is available *)
     Queue.push (fun t -> enqueue_close t action fd) t.io_q
@@ -384,11 +384,11 @@ let enqueue_write st action (file_offset,fd,buf,len) =
     | None -> FD.uring_file_offset fd
   in
   let req = { op=`W; file_offset; len; fd; cur_off = 0; buf; action } in
-  Ctf.label "write";
+  Ctf.log "write";
   submit_rw_req st req
 
 let rec enqueue_splice ~src ~dst ~len st action =
-  Ctf.label "splice";
+  Ctf.log "splice";
   match FD.get "splice-src" src, FD.get "splice-dst" dst with
   | Error ex, _
   | _, Error ex -> enqueue_failed_thread st action ex
@@ -401,7 +401,7 @@ let rec enqueue_splice ~src ~dst ~len st action =
       Queue.push (fun st -> enqueue_splice ~src ~dst ~len st action) st.io_q
 
 let rec enqueue_openat2 ((access, flags, perm, resolve, dir, path) as args) st action =
-  Ctf.label "openat2";
+  Ctf.log "openat2";
   let use fd =
     let retry = with_cancel_hook ~action st (fun () ->
         Uring.openat2 st.uring ~access ~flags ~perm ~resolve ?fd path (Job action)
@@ -419,7 +419,7 @@ let rec enqueue_openat2 ((access, flags, perm, resolve, dir, path) as args) st a
 
 
 let rec enqueue_unlink ((dir, fd, path) as args) st action =
-  Ctf.label "unlinkat";
+  Ctf.log "unlinkat";
   match FD.get "unlink" fd with
   | Error ex -> enqueue_failed_thread st action ex
   | Ok fd ->
@@ -431,7 +431,7 @@ let rec enqueue_unlink ((dir, fd, path) as args) st action =
       Queue.push (fun st -> enqueue_unlink args st action) st.io_q
 
 let rec enqueue_connect fd addr st action =
-  Ctf.label "connect";
+  Ctf.log "connect";
   match FD.get "connect" fd with
   | Error ex -> enqueue_failed_thread st action ex
   | Ok unix_fd ->
@@ -453,7 +453,7 @@ let rec extract_fds = function
       | Ok fds -> Ok (fd :: fds)
 
 let rec enqueue_send_msg fd ~fds ~dst buf st action =
-  Ctf.label "send_msg";
+  Ctf.log "send_msg";
   match FD.get "send_msg" fd, extract_fds fds with
   | Error ex, _
   | _, Error ex -> enqueue_failed_thread st action ex
@@ -466,7 +466,7 @@ let rec enqueue_send_msg fd ~fds ~dst buf st action =
       Queue.push (fun st -> enqueue_send_msg fd ~fds ~dst buf st action) st.io_q
 
 let rec enqueue_recv_msg fd msghdr st action =
-  Ctf.label "recv_msg";
+  Ctf.log "recv_msg";
   match FD.get "recv_msg" fd with
   | Error ex -> enqueue_failed_thread st action ex
   | Ok unix_fd ->
@@ -478,7 +478,7 @@ let rec enqueue_recv_msg fd msghdr st action =
       Queue.push (fun st -> enqueue_recv_msg fd msghdr st action) st.io_q
 
 let rec enqueue_accept fd client_addr st action =
-  Ctf.label "accept";
+  Ctf.log "accept";
   match FD.get "accept" fd with
   | Error ex -> enqueue_failed_thread st action ex
   | Ok unix_fd ->
@@ -491,7 +491,7 @@ let rec enqueue_accept fd client_addr st action =
     )
 
 let rec enqueue_noop t action =
-  Ctf.label "noop";
+  Ctf.log "noop";
   let job = enqueue_job t (fun () -> Uring.noop t.uring (Job_no_cancel action)) in
   if job = None then (
     (* wait until an sqe is available *)
@@ -502,7 +502,7 @@ let submit_pending_io st =
   match Queue.take_opt st.io_q with
   | None -> ()
   | Some fn ->
-    Ctf.label "submit_pending_io";
+    Ctf.log "submit_pending_io";
     fn st
 
 type Runtime_events.User.tag += Eio_linux
@@ -907,7 +907,7 @@ module Low_level = struct
     with Unix.Unix_error (code, name, arg) -> raise @@ wrap_error code name arg
 
   let accept ~sw fd =
-    Ctf.label "accept";
+    Ctf.log "accept";
     let client_addr = Uring.Sockaddr.create () in
     let res = enter (enqueue_accept fd client_addr) in
     if res < 0 then (
@@ -1270,7 +1270,7 @@ let domain_mgr ~run_event_loop = object
       );
     Domain.join (Option.get !domain)
 
-  method run fn =
+  method run ?(loc = Ctf.get_caller ()) fn =
     let domain = ref None in
     enter (fun t k ->
         let cancelled, set_cancelled = Promise.create () in
@@ -1279,7 +1279,7 @@ let domain_mgr ~run_event_loop = object
             Fun.protect
               (fun () ->
                  let result = ref None in
-                 run_event_loop (fun _ -> result := Some (fn ~cancelled));
+                 run_event_loop ~loc (fun _ -> result := Some (fn ~cancelled));
                  Option.get !result
               )
               ~finally:(fun () -> enqueue_thread t k ())))
@@ -1424,8 +1424,8 @@ let with_uring ~queue_depth ?polling_timeout ?(fallback=no_fallback) fn =
       Printexc.raise_with_backtrace ex bt
 
 let rec run : type a.
-  ?queue_depth:int -> ?n_blocks:int -> ?block_size:int -> ?polling_timeout:int -> ?fallback:(_ -> a) -> (_ -> a) -> a =
-  fun ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fallback main ->
+  loc:string -> ?queue_depth:int -> ?n_blocks:int -> ?block_size:int -> ?polling_timeout:int -> ?fallback:(_ -> a) -> (_ -> a) -> a =
+  fun ~loc ?(queue_depth=64) ?n_blocks ?(block_size=4096) ?polling_timeout ?fallback main ->
   let n_blocks = Option.value n_blocks ~default:queue_depth in
   let stdenv = stdenv ~run_event_loop:(run ~queue_depth ~n_blocks ~block_size ?polling_timeout ?fallback:None) in
   (* TODO unify this allocation API around baregion/uring *)
@@ -1450,7 +1450,6 @@ let rec run : type a.
   let rec fork ~new_fiber:fiber fn =
     let open Effect.Deep in
     Ctf.note_switch (Fiber_context.tid fiber);
-    Ctf.label "fork";
     Runtime_events.User.write fiber_ev Begin;
     match_with fn ()
       { retc = (fun () -> Fiber_context.destroy fiber; schedule st);
@@ -1592,7 +1591,7 @@ let rec run : type a.
   in
   let result = ref None in
   let `Exit_scheduler =
-    let new_fiber = Fiber_context.make_root ~loc:(Eio.Private.Ctf.get_caller ()) () in
+    let new_fiber = Fiber_context.make_root ~loc () in
     fork ~new_fiber (fun () ->
         Switch.run_protected (fun sw ->
             let fd = EventFD_pool.get () in
@@ -1602,16 +1601,20 @@ let rec run : type a.
                 EventFD_pool.put unix
               );
             result := Some (
-                Fiber.first
-                  (fun () -> main stdenv)
-                  (fun () -> monitor_event_fd st)
+                Fiber.first ~loc
+                  (fun () ->
+                    Ctf.set_name "eio_linux.main";
+                    main stdenv)
+                  (fun () ->
+                    Ctf.set_name "eio_linux.monitor_event_fd";
+                    monitor_event_fd st)
               )
           )
       )
   in
   Option.get !result
 
-let run ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main =
+let[@inline] run ?(loc = Ctf.get_caller ()) ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main =
   (* SIGPIPE makes no sense in a modern application. *)
   Sys.(set_signal sigpipe Signal_ignore);
-  run ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main
+  run ~loc ?queue_depth ?n_blocks ?block_size ?polling_timeout ?fallback main
