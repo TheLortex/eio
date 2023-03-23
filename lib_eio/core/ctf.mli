@@ -6,8 +6,14 @@ type id = private int
 (** {2 Recording events}
     Libraries and applications can use these functions to make the traces more useful. *)
 
-val label : string -> unit
-(** [label msg] attaches text [msg] to the current thread. *)
+val log : string -> unit
+(** [log msg] attaches text [msg] to the current thread. *)
+
+val set_loc : string -> unit
+(** [set_loc msg] attaches location [msg] to the current thread. *)
+
+val set_name : string -> unit
+(** [set_name msg] attaches name [msg] to the current thread. *)
 
 val note_increase : string -> int -> unit
 (** [note_increase counter delta] records that [counter] increased by [delta].
@@ -55,7 +61,7 @@ val event_to_string : event -> string
 val mint_id : unit -> id
 (** [mint_id ()] is a fresh unique [id]. *)
 
-val note_created : ?label:string -> id -> event -> unit
+val note_created : ?label:string -> ?loc:string -> id -> event -> unit
 (** [note_created t id ty] records the creation of [id]. *)
 
 val note_read : ?reader:id -> id -> unit
@@ -106,7 +112,7 @@ type Runtime_events.User.tag += Created
 
 val labelled_type : (id * string) Runtime_events.Type.t
 
-type Runtime_events.User.tag += Failed | Label | Increase | Value
+type Runtime_events.User.tag += Failed | Log | Name | Loc | Increase | Value
 
 val two_ids_type : (id * id) Runtime_events.Type.t
 

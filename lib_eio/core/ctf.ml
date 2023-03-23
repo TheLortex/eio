@@ -194,9 +194,14 @@ let labelled_type =
 let failed = Runtime_events.User.register "eio.fail" Failed labelled_type
 type Runtime_events.User.tag += Resolved
 let resolved = Runtime_events.User.(register "eio.resolved" Resolved Runtime_events.Type.int)
-type Runtime_events.User.tag += Label
 
-let labelled = Runtime_events.User.register "eio.label" Label labelled_type
+type Runtime_events.User.tag += Name
+let named = Runtime_events.User.register "eio.name" Name labelled_type
+
+type Runtime_events.User.tag += Loc
+let located = Runtime_events.User.register "eio.loc" Loc labelled_type
+type Runtime_events.User.tag += Log
+let logged = Runtime_events.User.register "eio.log" Log labelled_type
 
 type Runtime_events.User.tag += Switch
 type Runtime_events.User.tag += Increase
@@ -228,6 +233,7 @@ module Control = struct
   let add_event = Runtime_events.User.write
 
   let note_created child thread_type =
+    assert ((child :> int) >= 0);
     add_event created (child, thread_type)
 
   let note_read ~reader input =
@@ -247,8 +253,14 @@ module Control = struct
     | None ->
         add_event resolved p
 
-  let note_label thread msg =
-    add_event labelled (thread, msg)
+  let note_log thread msg =
+    add_event logged (thread, msg)
+
+  let note_located thread msg =
+    add_event located (thread, msg)
+
+  let note_named thread msg =
+    add_event named (thread, msg)
 
   let note_increase counter amount =
     add_event increase (amount, counter)
@@ -271,10 +283,20 @@ module Control = struct
     current_thread := -1
 end
 
-let label name =
+let log name =
   match !Control.event_log with
   | false -> ()
-  | true -> Control.note_label !current_thread name
+  | true -> Control.note_log !current_thread name
+
+let set_name name =
+  match !Control.event_log with
+  | false -> ()
+  | true -> Control.note_named !current_thread name
+
+let set_loc name =
+  match !Control.event_log with
+  | false -> ()
+  | true -> Control.note_located !current_thread name
 
 let note_fork () =
   let child = mint_id () in
@@ -285,12 +307,13 @@ let note_fork () =
   end;
   child
 
-let note_created ?label id ty =
+let note_created ?label ?loc id ty =
   match !Control.event_log with
   | false -> ()
   | true ->
     Control.note_created id ty;
-    Option.iter (Control.note_label id) label
+    Option.iter (Control.note_named id) label;
+    Option.iter (Control.note_located id) loc
 
 let note_switch new_current =
   match !Control.event_log with
@@ -352,19 +375,52 @@ let note_counter_value counter value =
 let should_resolve thread =
   match !Control.event_log with
   | false -> ()
-  | true -> Control.note_label thread "__should_resolve" (* Hack! *)
+  | true -> Control.note_named thread "__should_resolve" (* Hack! *)
+
+let demango x = List.flatten (
+  List.map (fun i ->
+    Astring.String.cuts ~sep:"__" i
+    |> List.fold_left (fun a b -> match (a, b) with
+      | [], b -> [b]
+      | v, "" -> v
+      | a::v, s when Astring.Char.Ascii.is_lower s.[0] -> (a^"_"^s) :: v
+      | v, s -> s :: v) []
+    |> List.rev ) x
+  )
+
+let is_outer raw_entry =
+  let slot = Printexc.backtrace_slots_of_raw_entry raw_entry in
+  match slot with
+  | None -> None
+  | Some slots ->
+    Array.find_map (fun slot ->
+      let (let*) = Option.bind in
+      let* loc = Printexc.Slot.location slot in
+      let* name = Printexc.Slot.name slot in
+      let* name = match String.split_on_char '.' name |> demango with
+        | "Eio_core" :: _ -> None
+        | "Eio" :: _ -> None
+        | "Eio_linux" :: _ -> None
+        | "Eio_luv" :: _ -> None
+        | "Eio_main" :: _ -> None
+        | "Stdlib" :: _ -> None
+        | "Dune_exe" :: v -> Some (String.concat "." v)
+        | v -> Some (String.concat "." v)
+      in
+      Some (Fmt.str "%s (%s:%d)" name loc.filename loc.line_number)
+    ) slots
+  | Some _ -> None
 
 let dune_exe_strategy stack =
-  let first acc s = match acc, Astring.String.cut ~sep:"Dune__exe__" s with
-    | None, Some (_, v) -> Some v
-    | (Some _ as v), _ -> v
-    | _ -> None
+  let first acc s = match acc with
+    | (Some _ as v) -> v
+    | _ -> is_outer s
   in
   List.fold_left first None stack
 
 let get_caller () =
-  (* Need quite a few frames to escape switch and cancel contexts *)
-  let stack = Printexc.get_callstack 20 |> Printexc.raw_backtrace_to_string |> String.split_on_char '\n' in
+  let p = Printexc.get_callstack 30 |> Printexc.raw_backtrace_to_string in
+  let stack = Printexc.get_callstack 30 |> Printexc.raw_backtrace_entries |> Array.to_list in
   match dune_exe_strategy stack with
-  | Some s -> s
-  | None -> String.concat "\n" stack
+  | Some v -> v
+  | None -> p
