@@ -138,13 +138,13 @@ type Runtime_events.User.tag += Created
 
 let created_type =
   let encode buf ((child : int), (thread_type : event)) =
-    Bytes.set_int8 buf 0 child;
-    Bytes.set_int8 buf 1 (int_of_thread_type thread_type);
-    2
+    Bytes.set_int32_le buf 0 (Int32.of_int child);
+    Bytes.set_int8 buf 4 (int_of_thread_type thread_type);
+    5
   in
   let decode buf _size =
-    let child = Bytes.get_int8 buf 0 in
-    let thread_type = Bytes.get_int8 buf 1 |> int_to_thread_type in
+    let child = Bytes.get_int32_le buf 0 |> Int32.to_int in
+    let thread_type = Bytes.get_int8 buf 4 |> int_to_thread_type in
     (child, thread_type)
   in
   Runtime_events.Type.register ~encode ~decode
@@ -153,13 +153,13 @@ let created = Runtime_events.User.register "eio.created" Created created_type
 
 let two_ids_type =
   let encode buf ((child : int), i) =
-    Bytes.set_int8 buf 0 child;
-    Bytes.set_int8 buf 1 i;
-    2
+    Bytes.set_int32_le buf 0 (Int32.of_int i);
+    Bytes.set_int8 buf 4 i;
+    5
   in
   let decode buf _size =
-    let child = Bytes.get_int8 buf 0 in
-    let thread_type = Bytes.get_int8 buf 1 in
+    let child = Bytes.get_int32_le buf 0 |> Int32.to_int  in
+    let thread_type = Bytes.get_int8 buf 4 in
     (child, thread_type)
   in
   Runtime_events.Type.register ~encode ~decode
@@ -179,15 +179,15 @@ let labelled_type =
     let available_buf_len = Bytes.length buf - 1 in
     let exn_len = String.length exn in
     let data_len = min available_buf_len exn_len in
-    Bytes.set_int8 buf 0 child;
-    Bytes.blit_string exn 0 buf 1 data_len;
-    data_len + 1
+    Bytes.set_int32_le buf 0 (Int32.of_int child);
+    Bytes.blit_string exn 0 buf 4 data_len;
+    data_len + 4
   in
   let decode buf size =
-    let child = Bytes.get_int8 buf 0 in
-    let size = size - 1 in
+    let child = Bytes.get_int32_le buf 0 |> Int32.to_int in
+    let size = size - 4 in
     let target = Bytes.create size in
-    Bytes.blit buf 1 target 0 size;
+    Bytes.blit buf 4 target 0 size;
     (child, Bytes.unsafe_to_string target)
   in
   Runtime_events.Type.register ~encode ~decode
