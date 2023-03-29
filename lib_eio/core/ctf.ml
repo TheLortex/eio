@@ -409,7 +409,6 @@ let is_outer raw_entry =
       in
       Some (Fmt.str "%s (%s:%d)" name loc.filename loc.line_number)
     ) slots
-  | Some _ -> None
 
 let dune_exe_strategy stack =
   let first acc s = match acc with
