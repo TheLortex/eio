@@ -153,7 +153,7 @@ let created = Runtime_events.User.register "eio.created" Created created_type
 
 let two_ids_type =
   let encode buf ((child : int), i) =
-    Bytes.set_int32_le buf 0 (Int32.of_int i);
+    Bytes.set_int32_le buf 0 (Int32.of_int child);
     Bytes.set_int8 buf 4 i;
     5
   in
