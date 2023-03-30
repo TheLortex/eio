@@ -466,7 +466,7 @@ let run ~loc ~extra_effects st main arg =
   let `Exit_scheduler =
     let new_fiber = Fiber_context.make_root ~loc () in
     fork ~new_fiber (fun () ->
-        Switch.run_protected (fun sw ->
+        Switch.run_protected ~loc (fun sw ->
             Switch.on_release sw (fun () ->
                 Fd.close st.eventfd
               );

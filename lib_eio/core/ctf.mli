@@ -15,6 +15,12 @@ val set_loc : string -> unit
 val set_name : string -> unit
 (** [set_name msg] attaches name [msg] to the current thread. *)
 
+val note_loc : id -> string -> unit
+(** [note_loc msg] attaches location [msg] to [id]. *)
+
+val note_name : id -> string -> unit
+(** [note_name msg] attaches name [msg] to [id]. *)
+
 val note_increase : string -> int -> unit
 (** [note_increase counter delta] records that [counter] increased by [delta].
     If [delta] is negative, this records a decrease. *)
@@ -54,6 +60,7 @@ type event =
   | Switch
   | Stream
   | Mutex
+  | Cancellation_context
 (** Types of threads or other recorded objects. *)
 
 val event_to_string : event -> string
@@ -63,6 +70,8 @@ val mint_id : unit -> id
 
 val note_created : ?label:string -> ?loc:string -> id -> event -> unit
 (** [note_created t id ty] records the creation of [id]. *)
+
+val note_parent : child:id -> parent:id -> unit
 
 val note_read : ?reader:id -> id -> unit
 (** [note_read src] records that promise [src]'s value was read.
@@ -116,7 +125,7 @@ type Runtime_events.User.tag += Failed | Log | Name | Loc | Increase | Value
 
 val two_ids_type : (id * id) Runtime_events.Type.t
 
-type Runtime_events.User.tag += Read |Try_read | Signal
+type Runtime_events.User.tag += Read | Try_read | Signal | Parent
 
 (* int type *)
 

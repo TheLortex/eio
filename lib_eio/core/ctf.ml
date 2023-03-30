@@ -60,6 +60,7 @@ type event =
   | Switch
   | Stream
   | Mutex
+  | Cancellation_context
 
 type log_buffer = (char, int8_unsigned_elt, c_layout) Array1.t
 
@@ -87,6 +88,7 @@ let int_of_thread_type t =
   | Switch -> 17
   | Stream -> 18
   | Mutex -> 19
+  | Cancellation_context -> 20
 
 let event_to_string (t : event) =
   match t with
@@ -110,6 +112,7 @@ let event_to_string (t : event) =
   | Switch -> "switch"
   | Stream -> "stream"
   | Mutex -> "mutex"
+  | Cancellation_context -> "cancellation-context"
 
 let int_to_thread_type = function
   | 0 -> Wait
@@ -132,6 +135,7 @@ let int_to_thread_type = function
   | 17 -> Switch
   | 18 -> Stream
   | 19 -> Mutex
+  | 20 -> Cancellation_context
   | _ -> assert false
 
 type Runtime_events.User.tag += Created
@@ -169,6 +173,9 @@ let read = Runtime_events.User.register "eio.read" Read two_ids_type
 
 type Runtime_events.User.tag += Try_read
 let try_read = Runtime_events.User.register "eio.try_read" Try_read two_ids_type
+
+type Runtime_events.User.tag += Parent
+let parent = Runtime_events.User.register "eio.parent" Parent two_ids_type
 
 type Runtime_events.User.tag += Failed
 
@@ -281,6 +288,9 @@ module Control = struct
   let start () =
     event_log := true;
     current_thread := -1
+
+  let note_parent ~child ~parent:p =
+    add_event parent (child, p)
 end
 
 let log name =
@@ -288,15 +298,19 @@ let log name =
   | false -> ()
   | true -> Control.note_log !current_thread name
 
-let set_name name =
+let note_name id name =
   match !Control.event_log with
   | false -> ()
-  | true -> Control.note_named !current_thread name
+  | true -> Control.note_named id name
 
-let set_loc name =
+let note_loc id name =
   match !Control.event_log with
   | false -> ()
-  | true -> Control.note_located !current_thread name
+  | true -> Control.note_located id name
+
+let set_name name = note_name !current_thread name
+
+let set_loc name = note_loc !current_thread name
 
 let note_fork () =
   let child = mint_id () in
@@ -314,6 +328,11 @@ let note_created ?label ?loc id ty =
     Control.note_created id ty;
     Option.iter (Control.note_named id) label;
     Option.iter (Control.note_located id) loc
+
+let note_parent ~child ~parent =
+  match !Control.event_log with
+  | false -> ()
+  | true -> Control.note_parent ~child ~parent
 
 let note_switch new_current =
   match !Control.event_log with

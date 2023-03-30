@@ -108,7 +108,7 @@ let await_cancel () =
 let any ~loc fs =
   let r = ref `None in
   let parent_c =
-    Cancel.sub_unchecked (fun cc ->
+    Cancel.sub_unchecked ~loc ~name:"Fiber.any" (fun cc ->
         let wrap h =
           match h () with
           | x ->
@@ -145,7 +145,7 @@ let any ~loc fs =
             p :: aux fs
         in
         let ps = aux fs in
-        Cancel.protect (fun () -> List.iter Promise.await_exn ps)
+        Cancel.protect ~name:"Fiber.any.await" (fun () -> List.iter Promise.await_exn ps)
       )
   in
   match !r, Cancel.get_error parent_c with
