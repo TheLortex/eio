@@ -115,9 +115,8 @@ let maybe_raise_exs t =
   | None -> ()
   | Some (ex, bt) -> Printexc.raise_with_backtrace ex bt
 
-let create ?loc cancel =
+let create ?loc:_ cancel =
   let id = Ctf.mint_id () in
-  Ctf.note_created ?label:loc id Ctf.Switch;
   {
     id;
     fibers = 1;         (* The main function counts as a fiber *)
@@ -150,11 +149,11 @@ let run_internal t fn =
 
 let run ?(name="Switch.run") fn =
   let loc = Ctf.get_caller () in
-  Cancel.sub ~name ~loc (fun cc -> run_internal (create cc) fn)
+  Cancel.sub ~name ~loc ~purpose:Ctf.Switch (fun cc -> run_internal (create cc) fn)
 
-let run_protected ?loc fn =
+let run_protected ?(name="Switch.run_protected") ?loc fn =
   let ctx = Effect.perform Cancel.Get_context in
-  Cancel.with_cc ?loc ~name:"Switch.run_protected" ~ctx ~parent:ctx.cancel_context ~protected:true @@ fun cancel ->
+  Cancel.with_cc ?loc ~name ~ctx ~parent:ctx.cancel_context ~protected:true Ctf.Switch @@ fun cancel ->
   run_internal (create cancel) fn
 
 (* Run [fn ()] in [t]'s cancellation context.

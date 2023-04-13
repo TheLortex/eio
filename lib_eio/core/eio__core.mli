@@ -43,7 +43,7 @@ module Switch : sig
       If {!fail} is called, [run] will re-raise the exception (after everything is cleaned up).
       If [fn] raises an exception, it is passed to {!fail}. *)
 
-  val run_protected : ?loc:string -> (t -> 'a) -> 'a
+  val run_protected :  ?name:string -> ?loc:string -> (t -> 'a) -> 'a
   (** [run_protected fn] is like [run] but ignores cancellation requests from the parent context. *)
 
   (** {2 Cancellation and failure} *)
@@ -546,13 +546,13 @@ module Cancel : sig
   exception Cancel_hook_failed of exn list
   (** Raised by {!cancel} if any of the cancellation hooks themselves fail. *)
 
-  val sub : ?loc:string -> ?name:string -> (t -> 'a) -> 'a
+  val sub : ?loc:string -> ?name:string -> ?purpose:Ctf.cancellation_context -> (t -> 'a) -> 'a
   (** [sub fn] installs a new cancellation context [t], runs [fn t] inside it, and then restores the old context.
 
       If the old context is cancelled while [fn] is running then [t] is cancelled too.
       [t] cannot be used after [sub] returns. *)
 
-  val protect : ?loc:string -> ?name:string -> (unit -> 'a) -> 'a
+  val protect : ?loc:string -> ?name:string -> ?purpose:Ctf.cancellation_context -> (unit -> 'a) -> 'a
   (** [protect fn] runs [fn] in a new cancellation context that isn't cancelled when its parent is.
 
       This can be used to clean up resources on cancellation.
@@ -597,7 +597,7 @@ module Private : sig
   module Fiber_context : sig
     type t
 
-    val make_root : ?loc:string -> unit -> t
+    val make_root : ?system_thread:Ctf.id -> ?loc:string -> unit -> t
     (** Make a new root context for a new domain. *)
 
     val destroy : t -> unit

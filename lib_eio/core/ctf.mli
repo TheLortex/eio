@@ -39,14 +39,20 @@ type hiatus_reason =
   | Suspend
   | Hibernate
 
+type cancellation_context =
+  | Choose
+  | Pick
+  | Join
+  | Switch
+  | Protect
+  | Sub
+  | Root
+
 type event =
   | Wait
   | Task
   | Bind
   | Try
-  | Choose
-  | Pick
-  | Join
   | Map
   | Condition
   | On_success
@@ -57,10 +63,12 @@ type event =
   | Async
   | Promise
   | Semaphore
-  | Switch
   | Stream
   | Mutex
-  | Cancellation_context
+  | Cancellation_context of {
+    purpose: cancellation_context;
+    protected: bool;
+  }
 (** Types of threads or other recorded objects. *)
 
 val event_to_string : event -> string

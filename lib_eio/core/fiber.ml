@@ -72,13 +72,13 @@ let fork_promise_exn ~loc ~sw f =
   p
 
 let all ~loc xs =
-  Switch.run @@ fun sw ->
+  Switch.run ~name:"Fiber.all" @@ fun sw ->
   List.iter (fork ~loc ~sw) xs
 
 let both ~loc f g = all ~loc [f; g]
 
 let pair ~loc f g =
-  Switch.run @@ fun sw ->
+  Switch.run ~name:"Fiber.pair" @@ fun sw ->
   let x = fork_promise ~loc ~sw f in
   let y = g () in
   (Promise.await_exn x, y)
@@ -108,7 +108,7 @@ let await_cancel () =
 let any ~loc fs =
   let r = ref `None in
   let parent_c =
-    Cancel.sub_unchecked ~loc ~name:"Fiber.any" (fun cc ->
+    Cancel.sub_unchecked ~loc ~name:"Fiber.any" ~purpose:Ctf.Choose (fun cc ->
         let wrap h =
           match h () with
           | x ->
@@ -239,7 +239,7 @@ module List = struct
     match items with
     | [] -> []    (* Avoid creating a switch in the simple case *)
     | items ->
-      Switch.run @@ fun sw ->
+      Switch.run ~name:"Fiber.List.filter_map" @@ fun sw ->
       let limiter = Limiter.create ~sw max_fibers in
       let rec aux = function
         | [] -> []
